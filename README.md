@@ -10,7 +10,7 @@ It integrates ML, cheminformatics, and the Open Targets Platform.
 3. Explore modules: similarity search, target prediction, pathway mapping
 
 Here’s a suggested structure:
-
+```
 RepurposAI/
 ├── README.md
 ├── requirements.txt
@@ -28,3 +28,4 @@ RepurposAI/
 ├── tests/                      # Basic test scripts for functions
 └── notebooks/                  # Jupyter notebooks for testing ML/API modules
     └── example_notebook.ipynb
+```
