@@ -29,3 +29,13 @@ RepurposAI/
 └── notebooks/                  # Jupyter notebooks for testing ML/API modules
     └── example_notebook.ipynb
 ```
+
+
+## ✅ Next Steps for Hackathon Participants
+
+- Fork the repository and pick a task from the GitHub Epic.  
+- Implement the placeholder modules in `/app` and `/app/utils`.  
+- Add sample Jupyter notebooks in `/notebooks` to test modules.  
+- Start building Streamlit pages in `/app/main.py` and `/app/dashboard.py`.  
+- Commit your work regularly and create issues/sub-issues for new features or bugs.  
+- Tag issues with relevant labels: `backend`, `frontend`, `api`, `ml`, `docs`, `streamlit`, `rdkit`.
