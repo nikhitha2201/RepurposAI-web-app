@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+rdkit-pypi
+tensorflow
+plotly
+seaborn
+requests
