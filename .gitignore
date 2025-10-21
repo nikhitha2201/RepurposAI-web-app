@@ -1,0 +1,39 @@
+# Byte‐compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Unit test / coverage
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+pytest.ini
+
+# mypy
+.mypy_cache/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.iml
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Logs
+*.log
+
+# Jupyter Notebook
+.ipynb_checkpoints
