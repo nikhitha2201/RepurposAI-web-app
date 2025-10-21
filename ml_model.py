@@ -1,20 +1,23 @@
-import tensorflow as tf
-import numpy as np
-
 def predict_targets(compound_features):
     # Placeholder ML function
-        """
-    Mock TensorFlow pipeline to simulate compound→target prediction.
-    No real model training done yet.
-    """
-    # Placeholder "model" — 2 dense layers
+    import numpy as np
+    import tensorflow as tf
+
+    # Example gene targets
+    TARGET_GENES = ["TP53", "EGFR", "BRCA1", "MTOR", "VEGFA"]
+
+    if not isinstance(compound_features, np.ndarray):
+        compound_features = np.random.rand(1024)
+
+    # small mock neural network 
     model = tf.keras.Sequential([
-        tf.keras.layers.Input(shape=(len(compound_features),)),
-        tf.keras.layers.Dense(64, activation='relu'),
-        tf.keras.layers.Dense(8, activation='sigmoid')  # 8 possible targets
+        tf.keras.layers.Dense(64, activation="relu", input_shape=(compound_features.shape[0],)),
+        tf.keras.layers.Dense(32, activation="relu"),
+        tf.keras.layers.Dense(len(TARGET_GENES), activation="softmax")
     ])
 
-    # Mock prediction
-    mock_input = np.array(compound_features).reshape(1, -1)
-    predictions = model(mock_input).numpy().flatten()
-    return ["TP53", "BRCA1"]
+    # Select targets with probability above 0.2
+    threshold = 0.2
+    selected_targets = [TARGET_GENES[i] for i, p in enumerate(preds) if p > threshold]
+
+    return selected_targets
