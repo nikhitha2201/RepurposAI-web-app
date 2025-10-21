@@ -39,3 +39,6 @@ RepurposAI/
 - Start building Streamlit pages in `/app/main.py` and `/app/dashboard.py`.  
 - Commit your work regularly and create issues/sub-issues for new features or bugs.  
 - Tag issues with relevant labels: `backend`, `frontend`, `api`, `ml`, `docs`, `streamlit`, `rdkit`.
+
+### Example logo
+<img src="https://github.com/jchchiu/RepurposAI-web-app/blob/main/docs/images/RepurposAI_LOGO_example.png" width="192">
