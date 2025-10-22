@@ -1,121 +1,209 @@
-import requests
-#from collections import defaultdict
-from ratelimit import limits, sleep_and_retry
+#/usr/bin/env python3
 
-def fetch_target_data(compound):
-    # Placeholder function to integrate Open Targets API
-    return {"gene": "TP53", "disease": "Cancer", "evidence_score": 0.95}
+import requests
+from typing import List, Optional, Dict
+from ratelimit import limits, sleep_and_retry
+import ml_model  
+import statistics
+def fetch_target_data(compound: str) -> Dict[str, object]:
+    targets = ml_model.predict_targets(compound)
+    # targets should be a dictionary, for example: {"gene": "TP53"}
+    return targets 
+    # return {"gene": "TP53"}
+
+# ------------------------------
+# Open Targets
+# ------------------------------
+
+class OpenTargetsClient:
+    BASE_URL = "https://api.platform.opentargets.org/api/v4/graphql"
+
+    def __init__(self, timeout: float = 15.0):
+        self.timeout = timeout
+        self.session = requests.Session()
+
+    def run_query(self, query: str, variables: Optional[dict] = None) -> dict:
+        response = self.session.post(
+            self.BASE_URL,
+            json={"query": query, "variables": variables},
+            timeout=self.timeout,
+        )
+        if response.status_code != 200:
+            raise ValueError(f"Open Targets API error {response.status_code}: {response.text}")
+        data = response.json()
+        if "errors" in data:
+            raise ValueError(f"GraphQL error: {data['errors']}")
+        return data
+
+    def get_ensembl_id(self, gene_symbol: str) -> Optional[str]:
+        query = """
+        query targetSearch($queryStr: String!) {
+          search(queryString: $queryStr, entityNames: ["target"]) {
+            hits {
+              id
+              name
+              score
+            }
+          }
+        }
+        """
+        variables = {"queryStr": gene_symbol}
+        data = self.run_query(query, variables)
+        hits = data.get("data", {}).get("search", {}).get("hits", [])
+        if hits:
+            return hits[0]["id"]  # e.g., "ENSG00000141510"
+        return None
+
+    def get_associated_diseases(self, ensembl_id: str, score_threshold: float = 0.3) -> List[Dict[str, str]]:
+        query = """
+        query associatedDiseases($ensemblId: String!) {
+          target(ensemblId: $ensemblId) {
+            associatedDiseases {
+              rows {
+                disease {
+                  id
+                  name
+                }
+                datasourceScores {
+                  id
+                  score
+                }
+              }
+            }
+          }
+        }
+        """
+        data = self.run_query(query, {"ensemblId": ensembl_id})
+        print(data)
+        rows = data["data"]["target"]["associatedDiseases"]["rows"]
+        diseases = []
+        for row in rows:
+            disease_id = row["disease"]["id"]
+            disease_name = row["disease"]["name"]
+            avg_score = sum(ds["score"] for ds in row["datasourceScores"]) / len(row["datasourceScores"])
+            if avg_score >= score_threshold:
+                diseases.append({"id": disease_id, "name": disease_name})
+        return diseases
+    def get_target_evidences(self, ensembl_id: str, efo_ids: Optional[List[str]] = None) -> List[dict]:
+
+        query = """
+        query evidenceForTarget($ensemblId: String!, $efoIds:[String!]!) {
+        target(ensemblId: $ensemblId) {
+            id
+            approvedSymbol
+            evidences(efoIds: $efoIds) {
+            count
+            rows {
+                disease { id name }
+                resourceScore
+            }
+            }
+        }
+        }
+        """
+        variables = {
+            "ensemblId": ensembl_id,
+            "efoIds": efo_ids,
+            "datasourceIds": ["intogen", "eva", "gene2phenotype"]
+        }
+        data = self.run_query(query, variables)
+        rows = data.get("data", {}).get("evidence", {}).get("rows", [])
+        return rows or []
+
+    def summarize_evidence(self, evidences: List[dict]) -> Dict[str, object]:
+        """Summarize Open Targets evidence list."""
+        if not evidences:
+            return {"count": 0, "avg_score": 0, "top_diseases": []}
+
+        scores = [ev.get("resourceScore", 0) for ev in evidences if ev.get("resourceScore") is not None]
+        avg_score = statistics.mean(scores) if scores else 0
+
+        diseases = {}
+        for ev in evidences:
+            d = ev.get("disease", {}).get("name")
+            if d:
+                diseases[d] = diseases.get(d, 0) + 1
+
+        top_diseases = sorted(diseases.items(), key=lambda x: x[1], reverse=True)[:3]
+        return {
+            "count": len(evidences),
+            "avg_score": avg_score,
+            "top_diseases": [d for d, _ in top_diseases],
+        }
+
+# ------------------------------
+# KEGG
+# ------------------------------
 
 class KEGGAPIClient:
-    """Client for interacting with the KEGG API."""
-    
     BASE_URL = "https://rest.kegg.jp"
     RATE_LIMIT_CALLS = 3
     RATE_LIMIT_PERIOD = 1
-    
+
     def __init__(self, timeout: float = 10.0):
         self.timeout = timeout
         self.session = requests.Session()
 
-    # Set rate limit for KEGG API calls ("Please limit your API calls up to 3 times per second. Otherwise, your access will be blocked.")
     @sleep_and_retry
     @limits(calls=RATE_LIMIT_CALLS, period=RATE_LIMIT_PERIOD)
     def _make_request(self, endpoint: str) -> requests.Response:
-        """Make a rate-limited request to KEGG API."""
         url = f"{self.BASE_URL}/{endpoint}"
         response = self.session.get(url, timeout=self.timeout)
-        self._validate_response(response)  # Validates and raises if needed
+        self._validate_response(response)
         return response
-    
-    def _validate_response(self, response: requests.Response, api_name: str = "KEGG API") -> None:
-        """
-        Validate API response status code and raise appropriate errors.
-        """
-        if response.status_code == 400:
-            raise ValueError(
-                f"{api_name} returned Status Code 400: Bad request "
-                "(syntax error, wrong database name, etc.)"
-            )
-        elif response.status_code == 404:
-            raise ValueError(
-                f"{api_name} returned Status Code 404: Not found "
-                "(e.g., requesting amino acid sequence for RNA)"
-            )
-        elif response.status_code != 200:
-            raise ValueError(
-                f"{api_name} returned Status Code {response.status_code}"
-            )
-    
-    def find_kegg_id(self, gene_target: str, organism: str = "hsa") -> str:
-        """
-        Get the KEGG gene ID for a given gene symbol (e.g., BRCA1, TP53).
-        Ensures we pick the entry whose primary name exactly matches the symbol.
-        """
-        try:
-            response = self._make_request(f"find/genes/{gene_target}")
-            if not response.ok or not response.text.strip():
-                return None
 
-#            candidates = []
-            for line in response.text.strip().splitlines():
-                # Can shorten here maybe (all hsa are at the start of the queries)
-                if not line.startswith(f"{organism}:"):
-                    continue
-                parts = line.split("\t", 1)
-                if len(parts) < 2:
-                    continue
-                gene_id, desc = parts
-                gene_names = desc.split(";")[0]  # take the first part before the semicolon
-                primary_name = gene_names.split(",")[0].strip().upper()
+    def _validate_response(self, response: requests.Response):
+        if response.status_code != 200:
+            raise ValueError(f"KEGG error {response.status_code}: {response.text}")
 
-#                # Save candidate info
-#                candidates.append((gene_id, primary_name, gene_names))
+    def find_kegg_id(self, gene_symbol: str, organism: str = "hsa") -> Optional[str]:
+        """Find KEGG gene ID."""
+        response = self._make_request(f"find/genes/{gene_symbol}")
+        for line in response.text.strip().splitlines():
+            if line.startswith(f"{organism}:"):
+                gene_id = line.split("\t")[0]
+                return gene_id
+        return None
 
-                # Return if exact match
-                if primary_name == gene_target.upper():
-                    return gene_id  # e.g. "hsa:672"
+    def fetch_pathway_all(self, kegg_id: str) -> List[str]:
+        """Fetch all pathways linked to a KEGG gene ID."""
+        response = self._make_request(f"link/pathway/{kegg_id}")
+        return [l.split()[1].replace("path:", "") for l in response.text.strip().splitlines() if "path:" in l]
 
-            # fallback: partial match (if no exact)
-            # CAN REMOVE THIS? RAISE ERROR IF NO EXACT MATCH TO KEGG ID
-#           if candidates:
-#                return candidates[0][0]
-            return None
-        
-        except ValueError as e:
-            raise ValueError(f"Failed to find KEGG id for {gene_target}: {e}")
-        except requests.exceptions.Timeout:
-            raise TimeoutError(f"Request timed out after {self.timeout}s")
-        except requests.exceptions.RequestException as e:
-            raise ConnectionError(f"Failed to connect to KEGG API: {str(e)}")
-
-    def fetch_pathway_all(self, kegg_id: str) -> list[str]:
-        """Fetch pathway codes associated with KEGG ID."""
-        try:
-            response = self._make_request(f"link/pathway/{kegg_id}")
-            return self._parse_pathway_response(response.text)
-        
-        except ValueError as e:
-            raise ValueError(f"Failed to fetch pathways for {kegg_id}: {e}")
-        except requests.exceptions.Timeout:
-            raise TimeoutError(f"Request timed out after {self.timeout}s")
-        except requests.exceptions.RequestException as e:
-            raise ConnectionError(f"Failed to connect to KEGG API: {str(e)}")
-        
-    def _parse_pathway_response(self, response_text: str) -> list[str]:
-        """Parse the pathway response text into a list."""
-        pathway_list = []
-
-        for line in response_text.strip().splitlines():
-            parts = line.split()
-            if len(parts) == 2 and parts[1].startswith("path:"):
-                path = parts[1].split("path:")[1]
-                pathway_list.append(path)
-        
-        return pathway_list
-    
+# ------------------------------
+# Main pipeline
+# ------------------------------
 if __name__ == "__main__":
-    kegg_client = KEGGAPIClient()
-    kegg_id = kegg_client.find_kegg_id("BRCA1")
-    print(kegg_id)
-    pathway_all = kegg_client.fetch_pathway_all(kegg_id)
-    print(pathway_all)
+    ## testing
+    compound = "aspirin"
+    predicted_data = fetch_target_data(compound)
+    gene_symbol = predicted_data["gene"]
+
+    print(f"Checking evidence for {gene_symbol} on Open Targets...")
+    ot_client = OpenTargetsClient()
+
+    # Step 1. Get Ensembl ID
+    ensembl_id = ot_client.get_ensembl_id(gene_symbol)
+    diseases = ot_client.get_associated_diseases(ensembl_id, score_threshold=0.5)
+    # diseases = ot_client.get_efo_ids(diseases)
+    efo_ids = [d["id"] for d in diseases]
+    if not ensembl_id:
+        print(f"No Ensembl ID found for {gene_symbol}, skipping.")
+        exit(1)
+    print(f"Ensembl ID: {ensembl_id}")
+
+    evidences = ot_client.get_target_evidences(ensembl_id, efo_ids)
+    summary = ot_client.summarize_evidence(evidences)
+
+    if summary["count"] > 0 and summary["avg_score"] > 1e-20:
+        kegg_client = KEGGAPIClient()
+        kegg_id = kegg_client.find_kegg_id(gene_symbol)
+        print(f"KEGG ID: {kegg_id}")
+
+        if kegg_id:
+            pathways = kegg_client.fetch_pathway_all(kegg_id)
+            print(f"Pathways for {gene_symbol}: {pathways}")
+        else:
+            print("No KEGG ID found for this gene.")
+    else:
+        print(f"Skipping {gene_symbol}: insufficient evidence (count={summary['count']}, score={summary['avg_score']:.2e})")
