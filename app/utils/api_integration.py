@@ -161,8 +161,15 @@ class KEGGAPIClient:
         response = self._make_request(f"find/genes/{gene_symbol}")
         for line in response.text.strip().splitlines():
             if line.startswith(f"{organism}:"):
-                gene_id = line.split("\t")[0]
-                return gene_id
+                parts = line.split("\t")
+                gene_id, desc = parts
+
+                # Need to check whether the gene name actually matches with the gene symbol
+                # e.g. first result for BRCA1 is NBR1 (hsa:4077), NOT BRCA1 (hsa:672)
+                gene_names = desc.split(";")[0]
+                primary_name = gene_names.split(",")[0].strip().upper()
+                if primary_name == gene_symbol.upper():
+                    return gene_id  # e.g. "hsa:672"
         return None
 
     def fetch_pathway_all(self, kegg_id: str) -> List[str]:
